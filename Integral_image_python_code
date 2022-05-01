@@ -1,0 +1,115 @@
+# assignment2_cv
+#Integral image
+#!/usr/bin/env python3
+#assignment1 que5 rgb_depth aligned
+#from depth ai modules and examples:
+import numpy as np
+import depthai as dai
+import cv2 as cv
+import cv2
+#considering the weights where the condition be total of 1.0
+wei_rgb = 0.4
+wei_dep = 0.6
+def updateBlendWeights(percent_rgb):
+    global wei_dep
+    global wei_rgb
+    wei_rgb = float(percent_rgb)/100.0
+    wei_dep = 1.0 - wei_rgb
+
+
+#here the color camera changed to 780p from 1080p
+# Otherwise (False), the aligned depth is automatically upscaled to 1080p
+downscaleColor = True
+fps = 30
+# The disparity is computed at this resolution, then upscaled to RGB resolution
+res_mono = dai.MonoCameraProperties.SensorResolution.THE_400_P
+pipeline = dai.Pipeline()
+list_n = []
+#here we are considering the outputs and inputs
+RGB_Camera = pipeline.create(dai.node.ColorCamera)
+l = pipeline.create(dai.node.MonoCamera)
+r = pipeline.create(dai.node.MonoCamera)
+st_cam = pipeline.create(dai.node.st_camDepth)
+output_rgb = pipeline.create(dai.node.XLinkOut)
+output_depth = pipeline.create(dai.node.XLinkOut)
+output_rgb.setStreamName("rgb")
+list_n.append("rgb")
+output_depth.setStreamName("depth")
+list_n.append("depth")
+
+#Properties
+RGB_Camera.setBoardSocket(dai.CameraBoardSocket.RGB)
+RGB_Camera.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
+RGB_Camera.setFps(fps)
+if downscaleColor: RGB_Camera.setIspScale(2, 3)
+RGB_Camera.initialControl.setManualFocus(120)
+
+l.setResolution(res_mono)
+l.setBoardSocket(dai.CameraBoardSocket.l)
+l.setFps(fps)
+r.setResolution(res_mono)
+r.setBoardSocket(dai.CameraBoardSocket.r)
+r.setFps(fps)
+
+st_cam.setDefaultProfilePreset(dai.node.st_camDepth.PresetMode.HIGH_DENSITY)
+
+st_cam.setlrCheck(True)
+st_cam.setDepthAlign(dai.CameraBoardSocket.RGB)
+
+#here we are performing the linking
+RGB_Camera.isp.link(output_rgb.input)
+l.out.link(st_cam.l)
+r.out.link(st_cam.r)
+st_cam.disparity.link(output_depth.input)
+
+# connecting with the camera in order to start pipelining
+with dai.Device(pipeline) as device:
+
+    device.getOutputQueue(name="rgb",   maxSize=4, blocking=False)
+    device.getOutputQueue(name="depth", maxSize=4, blocking=False)
+
+    RGB_Fr = None
+    depth_fr = None
+    rgb_screen = "rgb"
+    depth_screen = "depth"
+    screen_combined = "rgb-depth"
+    cv2.namedWindow(rgb_screen)
+    cv2.namedWindow(depth_screen)
+    cv2.namedWindow(screen_combined)
+    cv2.createTrackbar('RGB Weight %', screen_combined, int(wei_rgb*100), 100, updateBlendWeights)
+
+    while True:
+        new_packt = {}
+        new_packt["rgb"] = None
+        new_packt["depth"] = None
+    dict_q = device.getQueueEvents(("rgb", "depth"))
+        for queueName in dict_q:
+            packets = device.getOutputQueue(queueName).tryGetAll()
+            if len(packets) > 0:
+                new_packt[queueName] = packets[-1]
+
+        if new_packt["rgb"] is not None:
+            RGB_Fr = new_packt["rgb"].getCvFrame()
+            cv2.imshow(rgb_screen, RGB_Fr)
+        if new_packt["depth"] is not None:
+            depth_fr = new_packt["depth"].getFrame()
+            maxDisparity = st_cam.initialConfig.getMaxDisparity()
+            # Optional, extend range 0..95 -> 0..255, for a better visualisation
+            if 1: depth_fr = (depth_fr * 255. / maxDisparity).astype(np.uint8)
+            # Optional, apply false colorization
+            if 1: depth_fr = cv2.applyColorMap(depth_fr, cv2.COLORMAP_HOT)
+            depth_fr = np.ascontiguousarray(depth_fr)
+            cv2.imshow(depth_screen, depth_fr)
+
+        #when we get both we do combine them
+        if RGB_Fr is not None and depth_fr is not None:
+            # Need to have both frames in BGR format before blending
+            if len(depth_fr.shape) < 3:
+                depth_fr = cv2.cvtColor(depth_fr, cv2.COLOR_GRAY2BGR)
+            blended = cv2.addWeighted(RGB_Fr, wei_rgb, depth_fr, wei_dep, 0)
+            cv2.imshow(screen_combined, blended)
+            RGB_Fr = None
+            depth_fr = None
+
+        if cv2.waitKey(1) == ord('s'):
+            break
