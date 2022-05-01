@@ -1,0 +1,56 @@
+#realtime_panoramic_image_stitching
+#from depth ai
+#https://docs.luxonis.com/projects/api/en/latest/components/nodes/color_camera/
+
+import cv2
+import depthai as dai
+
+# Here we are creating a pipeline
+pipeline = dai.Pipeline()
+
+# here we give the input and the pano_op source
+camera_rgb = pipeline.create(dai.node.ColorCamera)
+tak_captured_v = pipeline.create(dai.node.XLinkOut)
+
+tak_captured_v.setStreamName("captured_v")
+
+# properties
+
+camera_rgb.setBoardSocket(dai.CameraBoardSocket.RGB)
+camera_rgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
+camera_rgb.setcaptured_vSize(1920, 1080)
+camera_rgb.setcaptured_vSize(1280, 720)
+
+tak_captured_v.input.setBlocking(False)
+tak_captured_v.input.setQueueSize(1)
+# here we are doing the linking of both of them
+camRgb.captured_v.link(tak_captured_v.input)
+
+with dai.Device(pipeline) as device:
+    captured_v = device.getpano_opQueue(name="captured_v", maxSize=1, blocking=False)
+    initial_c = 0
+    list_f = []
+    while True:
+        captured_vIn = captured_v.get()
+        pano_op = captured_vIn.getCvFrame()
+        cv2.imshow("captured_v", pano_op)
+         # we have to click d inorder to click more pictures
+        if cv2.waitKey(1) == ord('d'):
+            list_f.append(pano_op)
+            initial_c += 1
+            print(len(list_f))
+            #we  have to click y in order to create the panorama
+        if cv2.waitKey(1) == ord('y'):
+            if initial_c < 2:
+                print('few seconds')
+            else:
+                combiner = cv2.combiner.create()
+                code, panaroma = combiner.stitch(frames)
+                if code != cv2.combiner_OK:
+                    print("image stitching is not perfromed")
+                else:
+                    cv2.imshow('panoramic image', panaroma)
+                    cv2.imwrite('stitching.png', panaroma)
+
+        if cv2.waitKey(1) == ord('q'):
+            break
